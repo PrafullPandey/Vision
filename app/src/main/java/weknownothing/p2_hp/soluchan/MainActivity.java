@@ -1,11 +1,15 @@
 package weknownothing.p2_hp.soluchan;
 
+import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.media.Image;
 import android.net.Uri;
 import android.os.AsyncTask;
+import android.os.Environment;
+import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
 import android.speech.tts.TextToSpeech;
 import android.support.v7.app.AppCompatActivity;
@@ -16,6 +20,7 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.Switch;
 
 import com.android.volley.AuthFailureError;
 import com.android.volley.DefaultRetryPolicy;
@@ -27,10 +32,21 @@ import com.android.volley.toolbox.StringRequest;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.Closeable;
+import java.io.File;
+import java.io.FileDescriptor;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+
+import static android.provider.Settings.System.DATE_FORMAT;
 
 public class MainActivity extends AppCompatActivity implements View.OnClickListener , TextToSpeech.OnInitListener {
     private Button upload,choose;
@@ -38,11 +54,30 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private ImageView imgView;
     private final int IMG_REQUEST = 1;
     private Bitmap bitmap;
+
 //    private String Uploadurl = "http://caff2a32.ngrok.io/vihaan/image_save.php" ;
-    private String Uploadurl = "http://192.168.43.18/image_save.php" ;
+//    private String Uploadurl = "http://192.168.43.18/image_save.php" ;
+    private String Uploadurl = "http://fadb9de8.ngrok.io/" ;
 
     private static final String TAG = "MainActivity";
     private TextToSpeech tts ;
+
+    private static final int PICK_CAMERA_IMAGE = 2;
+    private static final int PICK_GALLERY_IMAGE = 1;
+
+    public static final String DATE_FORMAT = "yyyyMMdd_HHmmss";
+    public static final String IMAGE_DIRECTORY = "ImageScalling";
+
+
+    private Uri imageCaptureUri;
+
+    private File file;
+    private File sourceFile;
+    private File destFile;
+
+    private SimpleDateFormat dateFormatter;
+
+
 
 
 
@@ -51,7 +86,19 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+
+
         tts = new TextToSpeech(this , this);
+
+        file = new File(Environment.getExternalStorageDirectory()
+                + "/" + IMAGE_DIRECTORY);
+        if (!file.exists()) {
+            file.mkdirs();
+        }
+
+        dateFormatter = new SimpleDateFormat(
+                DATE_FORMAT, Locale.US);
+
 
         upload = (Button)findViewById(R.id.upload);
         choose = (Button)findViewById(R.id.choose);
@@ -69,19 +116,37 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         switch(v.getId()){
             case R.id.upload:
                 //uploadImage();
+                bitmap = decodeFile(destFile);
+//                Bitmap bitmap = bitmapOrg;
+                ByteArrayOutputStream stream = new ByteArrayOutputStream();
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 100, stream);
+                byte[] imageInByte = stream.toByteArray();
+                long lengthbmp = imageInByte.length;
+                Log.d(TAG, "onClick: ********"+lengthbmp);
+                imgView.setImageBitmap(bitmap);
+                Log.d(TAG, "onClick: *******done");
                 UploadImage upld = new UploadImage();
                 upld.execute();
                 break;
             case R.id.choose:
-                selectImage();
+                selectImage_gallery();
+//                selectImage_camera();
                 break;
         }
     }
-    private void selectImage(){
-        Intent intent = new Intent();
-        intent.setType("image/*");
-        intent.setAction(Intent.ACTION_GET_CONTENT);
-        startActivityForResult(intent,IMG_REQUEST);
+    private void selectImage_gallery(){
+        Intent intentGalley = new Intent(Intent.ACTION_PICK);
+        intentGalley.setType("image/*");
+        startActivityForResult(intentGalley, PICK_GALLERY_IMAGE);
+    }
+    private void selectImage_camera(){
+        destFile = new File(file, "img_"
+                + dateFormatter.format(new Date()).toString() + ".png");
+        imageCaptureUri = Uri.fromFile(destFile);
+
+        Intent intentCamera = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+        intentCamera.putExtra(MediaStore.EXTRA_OUTPUT, imageCaptureUri);
+        startActivityForResult(intentCamera, PICK_CAMERA_IMAGE);
     }
 /*
     private void uploadImage()
@@ -125,7 +190,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
         bitmap.compress(Bitmap.CompressFormat.JPEG,100,byteArrayOutputStream);
         byte[] imgBytes = byteArrayOutputStream.toByteArray();
-        Log.d(TAG, "ImagetoString: out");
+        Log.d(TAG, "ImagetoString: out*******"+imgBytes.length);
         return Base64.encodeToString(imgBytes,Base64.DEFAULT);
     }
 
@@ -133,24 +198,161 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         Log.d(TAG, "onActivityResult: in");
-        if(requestCode==IMG_REQUEST && resultCode==RESULT_OK && data!=null){
 
-            Uri path = data.getData();
-           // setPic(path.toString());
-            try {
-                final BitmapFactory.Options options = new BitmapFactory.Options();
-                options.inSampleSize = 8;
-                bitmap = MediaStore.Images.Media.getBitmap(getContentResolver(),path);
-                imgView.setImageBitmap(bitmap);
-                imgView.setVisibility(View.VISIBLE);
-                name.setVisibility(View.VISIBLE);
-            } catch (IOException e) {
-                e.printStackTrace();
+        if (resultCode == Activity.RESULT_OK) {
+            switch (requestCode) {
+                case PICK_GALLERY_IMAGE:
+                    Uri uriPhoto = data.getData();
+                    Log.d(TAG + ".PICK_GALLERY_IMAGE", "Selected image uri path :" + uriPhoto.toString());
+
+                    imgView.setImageURI(uriPhoto);
+                    imgView.setVisibility(View.VISIBLE);
+                    name.setVisibility(View.VISIBLE);
+
+                    sourceFile = new File(getPathFromGooglePhotosUri(uriPhoto));
+
+                    destFile = new File(file, "img_"
+                            + dateFormatter.format(new Date()).toString() + ".png");
+
+                    Log.d(TAG, "Source File Path :" + sourceFile);
+
+                    try {
+                        copyFile(sourceFile, destFile);
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                    break;
+                case PICK_CAMERA_IMAGE:
+                    Log.d(TAG + ".PICK_CAMERA_IMAGE", "Selected image uri path :" + imageCaptureUri);
+                    imgView.setImageURI(imageCaptureUri);
+                    break;
             }
 
         }
         Log.d(TAG, "onActivityResult: out");
     }
+    public String getPathFromGooglePhotosUri(Uri uriPhoto) {
+        if (uriPhoto == null)
+            return null;
+
+        FileInputStream input = null;
+        FileOutputStream output = null;
+        try {
+            ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(uriPhoto, "r");
+            FileDescriptor fd = pfd.getFileDescriptor();
+            input = new FileInputStream(fd);
+
+            String tempFilename = getTempFilename(this);
+            output = new FileOutputStream(tempFilename);
+
+            int read;
+            byte[] bytes = new byte[4096];
+            while ((read = input.read(bytes)) != -1) {
+                output.write(bytes, 0, read);
+            }
+            return tempFilename;
+        } catch (IOException ignored) {
+            // Nothing we can do
+        } finally {
+            closeSilently(input);
+            closeSilently(output);
+        }
+        return null;
+    }
+
+    public static void closeSilently(Closeable c) {
+        if (c == null)
+            return;
+        try {
+            c.close();
+        } catch (Throwable t) {
+            // Do nothing
+        }
+    }
+
+    private static String getTempFilename(Context context) throws IOException {
+        File outputDir = context.getCacheDir();
+        File outputFile = File.createTempFile("image", "tmp", outputDir);
+        return outputFile.getAbsolutePath();
+    }
+
+    private void copyFile(File sourceFile, File destFile) throws IOException {
+        if (!sourceFile.exists()) {
+            return;
+        }
+
+        FileChannel source = null;
+        FileChannel destination = null;
+        source = new FileInputStream(sourceFile).getChannel();
+        destination = new FileOutputStream(destFile).getChannel();
+        if (destination != null && source != null) {
+            destination.transferFrom(source, 0, source.size());
+        }
+        if (source != null) {
+            source.close();
+        }
+        if (destination != null) {
+            destination.close();
+        }
+    }
+
+
+    private Bitmap decodeFile(File f) {
+        Bitmap b = null;
+
+        //Decode image size
+        BitmapFactory.Options o = new BitmapFactory.Options();
+        o.inJustDecodeBounds = true;
+
+        FileInputStream fis = null;
+        try {
+            fis = new FileInputStream(f);
+            BitmapFactory.decodeStream(fis, null, o);
+            fis.close();
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        int IMAGE_MAX_SIZE = 1024;
+        int scale = 1;
+        if (o.outHeight > IMAGE_MAX_SIZE || o.outWidth > IMAGE_MAX_SIZE) {
+            scale = (int) Math.pow(2, (int) Math.ceil(Math.log(IMAGE_MAX_SIZE /
+                    (double) Math.max(o.outHeight, o.outWidth)) / Math.log(0.5)));
+        }
+
+        //Decode with inSampleSize
+        BitmapFactory.Options o2 = new BitmapFactory.Options();
+        o2.inSampleSize = scale;
+        try {
+            fis = new FileInputStream(f);
+            b = BitmapFactory.decodeStream(fis, null, o2);
+            fis.close();
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        Log.d(TAG, "decodeFile: **********"+b);
+        //Log.d(TAG, "Width :" + b.getWidth() + " Height :" + b.getHeight());
+
+        destFile = new File(file, "img_"
+                + dateFormatter.format(new Date()).toString() + ".png");
+        try {
+            FileOutputStream out = new FileOutputStream(destFile);
+            b.compress(Bitmap.CompressFormat.PNG, 100, out);
+            out.flush();
+            out.close();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return b;
+    }
+
+
 
     @Override
     protected void onDestroy() {
@@ -254,4 +456,6 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             return null;
         }
     }
+
+
 }
