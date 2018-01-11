@@ -6,9 +6,10 @@ Install the android application using android studio and the run the python flas
 
 ### Prerequisites
 
-* [Android Studio]
-* [Python]
-* [Flask]
+* **Android Studio**
+* **Python**
+* **Flask**
+* **Anaconda**
 
 
 
